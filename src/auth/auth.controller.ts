@@ -1,42 +1,121 @@
 import {
   Controller,
-  Get,
   Post,
+  UseGuards,
+  Request,
+  Get,
   Body,
-  Patch,
-  Param,
-  Delete,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { CreateAuthDto } from './dto/create-auth.dto';
-import { UpdateAuthDto } from './dto/update-auth.dto';
+import { LocalAuthGuard } from './guard/local-auth.guard';
+import { JwtAuthGuard } from './guard/jwt-auth.guard';
+import { CredentialsDto, payloadDto } from './dto/credentials.dto';
+import { CreateUserDto } from 'src/user/dto/create-user.dto';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Post()
-  create(@Body() createAuthDto: CreateAuthDto) {
-    return this.authService.create(createAuthDto);
+  @UseGuards(LocalAuthGuard)
+  @Post('/login')
+  signIn(@Request() req: { user: CredentialsDto }) {
+    try {
+      return this.authService.login(req.user);
+    } catch (error) {
+      throw new HttpException(
+        {
+          error: 'Bad Request',
+          message:
+            error instanceof Error ? error.message : 'Failed to login user',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
 
-  @Get()
-  findAll() {
-    return this.authService.findAll();
+  @Post('/register')
+  async signUp(@Body() createUserDto: CreateUserDto) {
+    try {
+      const userExist = await this.authService.validateUser(
+        createUserDto.email,
+      );
+      if (userExist) {
+        throw new HttpException(
+          {
+            error: 'Bad Request',
+            message: 'User already exist',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      const data = await this.authService.register(createUserDto);
+      if (!data) {
+        throw new HttpException(
+          {
+            error: 'Bad Request',
+            message: 'Failed to create user',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      return HttpStatus.CREATED;
+    } catch (error) {
+      throw new HttpException(
+        {
+          error: 'Bad Request',
+          message:
+            error instanceof Error ? error.message : 'Failed to create user',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.authService.findOne(+id);
+  @UseGuards(LocalAuthGuard)
+  @Post('/logout')
+  logout(@Request() req: { logout: (cb: (err: Error) => void) => void }) {
+    try {
+      return req.logout((err) => {
+        if (err) {
+          throw new HttpException(
+            {
+              error: 'Bad Request',
+              message: err instanceof Error ? err.message : 'Failed to logout',
+            },
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+        return HttpStatus.OK;
+      });
+    } catch (error) {
+      throw new HttpException(
+        {
+          error: 'Bad Request',
+          message: error instanceof Error ? error.message : 'Failed to logout',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
 
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateAuthDto: UpdateAuthDto) {
-    return this.authService.update(+id, updateAuthDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.authService.remove(+id);
+  @UseGuards(JwtAuthGuard)
+  @Get('/profile')
+  async getProfile(@Request() req: { user: payloadDto }) {
+    try {
+      const { email } = req.user;
+      const data = await this.authService.getProfile(email);
+      return data;
+    } catch (error) {
+      throw new HttpException(
+        {
+          error: 'Bad Request',
+          message:
+            error instanceof Error ? error.message : 'Failed to get profile',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
 }
